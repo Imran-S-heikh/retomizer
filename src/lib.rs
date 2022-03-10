@@ -1,14 +1,21 @@
+mod library;
+
+use library::rules::{Rules, Style};
 use regex::Regex;
-struct Retomizer {
+pub struct Retomizer<'a> {
     content: String,
+    rules: Rules<'a>,
 }
 
-impl Retomizer {
-    fn new(content: String) -> Retomizer {
-        Retomizer { content }
+impl<'a> Retomizer<'a> {
+    pub fn new(content: String) -> Retomizer<'a> {
+        Retomizer {
+            content,
+            rules: Rules::new(),
+        }
     }
 
-    fn get_classes(&self) -> Vec<&str> {
+    pub fn get_classes(&self) -> Vec<&str> {
         let re = Regex::new(r"[A-Z][a-z]*\([a-zA-Z0-9,]+\)").unwrap();
         let mut result: Vec<&str> = vec![];
 
@@ -20,37 +27,72 @@ impl Retomizer {
 
         return result;
     }
+
+    fn generate_css(&self, class: Class) -> String {
+        let rules = Rules::new().rules;
+
+        if let Some(rule) = rules.get(class.style) {
+            let style = match &rule.styles {
+                Style::CallBack(callback) => {
+                    callback(&class.arguments)
+                }
+                Style::HashMap(map) => {
+                    String::from("border-radius: 3rem;")
+                }
+            };
+
+            let selector = format!(r"{}\({}\)",class.style,class.arguments.join(","));
+
+            return format!(r".{selector}{{{style}}}");
+        }
+
+        String::from("nothing found")
+    }
+
+    pub fn get_css(&self, classes: Vec<&str>) -> String {
+        let mut stylesheet = vec![];
+
+        for name in classes {
+            if let Some(class) = Class::new(name) {
+                let css = Retomizer::generate_css(&self, class);
+
+                stylesheet.push(css)
+            }
+        }
+
+        stylesheet.join("\n")
+    }
 }
 
-struct Class<'a> {
+pub struct Class<'a> {
     name: &'a str,
     style: &'a str,
-    arguments: Vec<&'a str>
+    arguments: Vec<&'a str>,
 }
 
 impl<'a> Class<'a> {
-    fn new(name: &str)-> Option<Class> {
-        let regex = Regex::new(r"(?P<style>[A-Z][a-z]*)(?:\()(?P<argument>[a-z0-9,]+)(?:\))").unwrap();
+    pub fn new(name: &str) -> Option<Class> {
+        let regex =
+            Regex::new(r"(?P<style>[A-Z][a-z]*)(?:\()(?P<argument>[a-z0-9,]+)(?:\))").unwrap();
 
         match regex.captures(name) {
             Some(captures) => {
                 let style = captures.name("style");
                 let argument = captures.name("argument");
 
-                match (style,argument) {
-                    (Some(style),Some(argument))=> {
+                match (style, argument) {
+                    (Some(style), Some(argument)) => {
                         return Some(Class {
                             name,
                             style: style.as_str(),
                             arguments: argument.as_str().split(",").collect(),
                         })
                     }
-                    _ => None
+                    _ => None,
                 }
-            },
-            None => None
+            }
+            None => None,
         }
-
     }
 }
 
@@ -66,15 +108,17 @@ mod tests {
         let retomizer = Retomizer::new(content);
         let class_names = retomizer.get_classes();
 
-        assert_eq!(vec!["Fz(2rem)", "Fw(5px)", "D(g)","Mstart(4px)","C(red)"], class_names);
+        assert_eq!(
+            vec!["Fz(2rem)", "Fw(5px)", "D(g)", "Mstart(4px)", "C(red)"],
+            class_names
+        );
     }
 
     #[test]
-    fn test_class () {
-
+    fn test_class() {
         let class = Class::new("P(3rem,3rem,10px,34inch)").unwrap();
         assert!(class.name != "");
-        assert_eq!(class.arguments,["3rem","3rem","10px","34inch"]);
-        assert_eq!(class.style,"P");
+        assert_eq!(class.arguments, ["3rem", "3rem", "10px", "34inch"]);
+        assert_eq!(class.style, "P");
     }
 }
