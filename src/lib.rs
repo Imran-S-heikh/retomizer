@@ -36,7 +36,7 @@ impl<'a> Retomizer<'a> {
                 Style::CallBack(callback) => {
                     callback(&class.arguments)
                 }
-                Style::HashMap(map) => {
+                Style::Object(map) => {
                     String::from("border-radius: 3rem;")
                 }
             };
