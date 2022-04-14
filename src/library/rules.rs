@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::format};
 
 use crate::Class;
 
@@ -10,17 +10,13 @@ pub enum Style<'a> {
 }
 
 impl<'a> Style<'a> {
-    fn mapped<const T: usize> (array:  [(&'a str,&'a str);T])-> Style<'a>{
+    fn mapped<const T: usize>(array: [(&'a str, &'a str); T]) -> Style<'a> {
         let mut map = HashMap::new();
-        for (rule,value) in array {
+        for (rule, value) in array {
             map.insert(rule, value);
         }
 
         Style::Object(map)
-    }
-
-    fn callback(cb: &'static dyn Fn(&Vec<&str>)->String)-> Style<'a> {
-        Style::CallBack(Box::new(cb))
     }
 }
 
@@ -29,42 +25,43 @@ pub struct Rule<'a> {
     allow_param_tovalue: bool,
     pub styles: Style<'a>,
 }
-// const NAMWE: usize = 384;
 
 pub struct Rules<'a> {
     pub rules: HashMap<&'a str, Rule<'a>>,
 }
 
-fn handle_styles(this: &Rule, class: Class) {}
-
-fn take_array<const M: usize>(arr:[(&str,&str);M])-> String{
-    println!("{:?}",arr);
-    String::from("helloworld")
-}
-
 impl<'a> Rules<'a> {
     pub fn new() -> Rules<'a> {
-        let mut rules = HashMap::new();
+        let mut rules_maped = HashMap::new();
 
-        // take_array([("hello","world"),"shaikh"]);
-        // take_array(["imran","shaikh"]);
-        // take_array(["imran","shaikh","data"]);
+        let rules = Rules::get();
 
-        let rule = Rule {
-            matcher: "Fz",
-            allow_param_tovalue: true,
-            styles: Style::mapped([("name","imran")]),
-        };
+        for rule in rules {
+            rules_maped.insert(rule.matcher, rule);
+        }
 
-        let rule1 = Rule {
-            matcher: "Px",
-            allow_param_tovalue: true,
-            styles: Style::CallBack(Box::new(|args| format!("padding-x:{}", args[0]))),
-        };
+        Rules { rules: rules_maped }
+    }
 
-        rules.insert(rule.matcher, rule);
-        rules.insert(rule1.matcher, rule1);
-
-        Rules { rules }
+    fn get() -> Vec<Rule<'a>> {
+        vec![
+            Rule {
+                matcher: "Px",
+                allow_param_tovalue: true,
+                styles: Style::mapped([("padding-left", "${0}"), ("padding-right", "${0}")]),
+            },
+            Rule {
+                matcher: "Fz",
+                allow_param_tovalue: true,
+                styles: Style::mapped([("font-size", "${0}")]),
+            },
+            Rule {
+                matcher: "Bgc",
+                allow_param_tovalue: true,
+                styles: Style::CallBack(Box::new(|args|{
+                    format!("background-color: {}",args[0])
+                }))
+            }
+        ]
     }
 }

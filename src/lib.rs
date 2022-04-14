@@ -17,6 +17,7 @@ impl<'a> Retomizer<'a> {
 
     pub fn get_classes(&self) -> Vec<&str> {
         let re = Regex::new(r"[A-Z][a-z]*\([a-zA-Z0-9,]+\)").unwrap();
+        let re = Regex::new(r"[A-Z][a-z]*\([a-zA-Z0-9,%]+\)(?:!)?(?::[a,c,f,h])?(?:::[a,b,fl,fli,ph])?(?:--[a-z]+)?").unwrap();
         let mut result: Vec<&str> = vec![];
 
         for cap in re.captures_iter(&self.content) {
@@ -33,15 +34,23 @@ impl<'a> Retomizer<'a> {
 
         if let Some(rule) = rules.get(class.style) {
             let style = match &rule.styles {
-                Style::CallBack(callback) => {
-                    callback(&class.arguments)
-                }
+                Style::CallBack(callback) => callback(&class.arguments),
                 Style::Object(map) => {
-                    String::from("border-radius: 3rem;")
+                    let mut styles = vec![];
+
+                    for (style, value) in map {
+                        let mut value = value.to_string();
+                        for (i, arg) in class.arguments.iter().enumerate() {
+                            value = value.replace(format!("${{{i}}}").as_str(), arg);
+                        }
+                        styles.push(format!("{style}:{value}"));
+                    }
+
+                    styles.join(";")
                 }
             };
 
-            let selector = format!(r"{}\({}\)",class.style,class.arguments.join(","));
+            let selector = format!(r"{}\({}\)", class.style, class.arguments.join(","));
 
             return format!(r".{selector}{{{style}}}");
         }
@@ -103,7 +112,7 @@ mod tests {
 
     #[test]
     fn test_get_classes() {
-        let content = String::from("Fz(2rem) Fw(5px) D(g) \n Mstart(4px) C(red)");
+        let content = String::from("Fz(2rem) Fw(5px) D(g) \n Mstart(4px)--sm C(red):h::b--sm");
 
         let retomizer = Retomizer::new(content);
         let class_names = retomizer.get_classes();
