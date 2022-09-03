@@ -1,7 +1,7 @@
 mod library;
 
 use library::rules::{Rules, Style};
-use regex::{Match, Regex};
+use regex::{Match, Regex, Captures};
 pub struct Retomizer<'a> {
     content: String,
     rules: Rules<'a>,
@@ -16,8 +16,7 @@ impl<'a> Retomizer<'a> {
     }
 
     pub fn get_classes(&self) -> Vec<&str> {
-        let re = Regex::new(r"[A-Z][a-z]*\([a-zA-Z0-9,]+\)").unwrap();
-        let re = Regex::new(r"[A-Z][a-z]*\([a-zA-Z0-9,%]+\)(?:!)?(?::[a,c,f,h])?(?:::[a,b,fl,fli,ph])?(?:--[a-z]+)?").unwrap();
+        let re = Regex::new(r"[A-Z][a-z]*\([a-zA-Z0-9,%]+\)(?:!)?(?::(a|c|f|h))?(?:::(a|bd|b|c|fsb|fli|fl|m|ph|s))?(?:--[a-z]+)?").unwrap();
         let mut result: Vec<&str> = vec![];
 
         for cap in re.captures_iter(&self.content) {
@@ -43,11 +42,9 @@ impl<'a> Retomizer<'a> {
                         for (i, arg) in class.arguments.iter().enumerate() {
                             value = value.replace(format!("${{{i}}}").as_str(), arg);
                         }
-                        // println!("{value}--------------");
                         styles.push(format!("{style}:{value}"));
                     }
 
-                    // styles.join(";")
                     styles
                 }
             };
@@ -75,12 +72,47 @@ impl<'a> Retomizer<'a> {
     }
 }
 
+
+pub struct Psudo<'a> {
+    selector: &'a str,
+    value: &'a str
+}
+
+impl<'a> Psudo<'a>{
+    pub fn new(psudo: Option<Match>)->Psudo {
+        let psudo = Class::get_match(psudo);
+        let (selector,value) = match psudo.as_str() {
+            ":a"=> (":a",":active"),
+            ":c"=> (":c",":checked"),
+            ":f"=> (":f",":focus"),
+            ":h"=> (":h",":hover"),
+            "::a"=> ("::a","::after"),
+            "::b"=> ("::b","::before"),
+            "::bd"=> ("::bd","::backdrop"),
+            "::c"=> ("::c","::cue"),
+            "::fsb"=> ("::fsb","::file-selector-button"),
+            "::fl"=> ("::fl","::first-letter"),
+            "::fli"=> ("::fli","::first-line"),
+            "::m"=> ("::m","::marker"),
+            "::ph"=> ("::ph","::placeholder"),
+            "::s"=> ("::s","::selection"),
+            _=>("","")
+        };
+
+        Psudo{
+            selector,
+            value
+        }
+    }
+}
 pub struct Class<'a> {
     name: &'a str,
     style: &'a str,
     arguments: Vec<&'a str>,
     important: bool,
     psudo_class: Option<Match<'a>>,
+    psudo_element: Option<Match<'a>>,
+    breakpoint: Option<Match<'a>>,
 }
 
 impl<'a> Class<'a> {
@@ -89,17 +121,18 @@ impl<'a> Class<'a> {
 
         match regex.captures(name) {
             Some(captures) => {
+
                 let style = captures.name("style");
                 let arguments = captures.name("arguments");
-                let important = captures.name("important").is_some();
-                let psudo_class = captures.name("psudo_class");
 
                 match (style, arguments) {
                     (Some(style), Some(arguments)) => {
                         return Some(Class {
                             name,
-                            important,
-                            psudo_class,
+                            important: captures.name("important").is_some(),
+                            psudo_class: captures.name("psudo_class"),
+                            psudo_element: captures.name("psudo_element"),
+                            breakpoint: captures.name("breakpoint"),
                             style: style.as_str(),
                             arguments: arguments.as_str().split(",").collect(),
                         })
@@ -124,23 +157,49 @@ impl<'a> Class<'a> {
             .join(";")
     }
 
+    fn get_match(text: Option<Match>) -> String {
+        match text {
+            Some(value) => value.as_str().to_string(),
+            None => String::from(""),
+        }
+    }
+
     pub fn to_string(&self, properties: Vec<String>) -> String {
+        let psudo_class = Psudo::new(self.psudo_class);
+        let psudo_element = Psudo::new(self.psudo_element);
         let selector = format!(
-            r"{context}{style}\({arguments}\){important}{psudo_class}{psudo_element}{breakpoint}",
+            r"{context}{style}({arguments}){important}{psudo_class}{psudo_element}{breakpoint}",
             context = "",
             style = self.style,
             arguments = self.arguments.join(","),
-            important = if self.important { r"\!" } else { "" },
-            psudo_class = "",
-            psudo_element = "",
-            breakpoint = ""
+            important = if self.important { "!" } else { "" },
+            psudo_class = psudo_class.selector,
+            psudo_element = psudo_element.selector,
+            breakpoint = Class::get_match(self.breakpoint)
+        );
+
+        let regex = Regex::new(r"[!():]").unwrap();
+        let selector = regex.replace_all(&selector, |capture: &Captures| {
+            let escaped = match capture.get(0) {
+                Some(value)=>format!(r"\{}",value.as_str()),
+                None=>String::from("")
+            };
+
+            escaped
+        });
+
+        let psudo = format!(
+            "{class}{element}",
+            class = psudo_class.value, 
+            element = psudo_element.value
         );
 
         let style = format!(
             r"{{{properties}}}",
             properties = Class::format_properties(&self, &properties)
         );
-        return format!(".{selector}{style}");
+
+        return format!(".{selector}{psudo}{style}");
     }
 }
 
