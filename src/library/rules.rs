@@ -6,7 +6,7 @@ use crate::Class;
 // struct CallBack(Box<dyn Fn(&Vec<&str>) -> String>);
 pub enum Style<'a> {
     Object(HashMap<&'a str, &'a str>),
-    CallBack(Box<dyn Fn(&Vec<&str>) -> String>),
+    CallBack(Box<dyn Fn(&Vec<&str>) -> Vec<String>>),
 }
 
 impl<'a> Style<'a> {
@@ -59,7 +59,7 @@ impl<'a> Rules<'a> {
                 matcher: "Bgc",
                 allow_param_tovalue: true,
                 styles: Style::CallBack(Box::new(|args|{
-                    format!("background-color: {}",args[0])
+                    vec![format!("background-color: {}",args[0])]
                 }))
             }
         ]
