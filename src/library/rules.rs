@@ -31,7 +31,7 @@ pub struct Rules<'a> {
 }
 
 impl<'a> Rules<'a> {
-    pub fn new() -> Rules<'a> {
+    pub fn mapped() -> HashMap<&'a str,Rule<'a>> {
         let mut rules_maped = HashMap::new();
 
         let rules = Rules::get();
@@ -40,7 +40,7 @@ impl<'a> Rules<'a> {
             rules_maped.insert(rule.matcher, rule);
         }
 
-        Rules { rules: rules_maped }
+        rules_maped
     }
 
     fn get() -> Vec<Rule<'a>> {
@@ -58,10 +58,10 @@ impl<'a> Rules<'a> {
             Rule {
                 matcher: "Bgc",
                 allow_param_tovalue: true,
-                styles: Style::CallBack(Box::new(|args|{
-                    vec![format!("background-color: {}",args[0])]
-                }))
-            }
+                styles: Style::CallBack(Box::new(|args| {
+                    vec![format!("background-color: {}", args[0])]
+                })),
+            },
         ]
     }
 }

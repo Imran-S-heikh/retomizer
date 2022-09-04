@@ -1,7 +1,11 @@
 {
-    "breakpoints": {
-        "sm": "@media(min-width:750px)",
-        "md": "@media(min-width:750px)",
-        "lg": "@media(min-width:750px)"
-    }
+  "content": [],
+  "breakpoints": {
+    "sm": "@media(min-width:750px)",
+    "md": "@media(min-width:750px)",
+    "lg": "@media(min-width:750px)"
+  },
+  "custom": {},
+  "classNames": [],
+  "exclude": []
 }

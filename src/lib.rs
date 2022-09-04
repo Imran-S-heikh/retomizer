@@ -1,17 +1,21 @@
 mod library;
 
-use library::rules::{Rules, Style};
+use std::collections::HashMap;
+
+use library::{rules::{Rules, Style, Rule}};
 use regex::{Match, Regex, Captures};
+
+pub use crate::library::config::Config;
 pub struct Retomizer<'a> {
     content: String,
-    rules: Rules<'a>,
+    mapped: HashMap<&'a str, Rule<'a>>,
 }
 
 impl<'a> Retomizer<'a> {
-    pub fn new(content: String) -> Retomizer<'a> {
+    pub fn new(content: String,config: Option<Config>) -> Retomizer<'a> {
         Retomizer {
             content,
-            rules: Rules::new(),
+            mapped: Rules::mapped(),
         }
     }
 
@@ -29,7 +33,7 @@ impl<'a> Retomizer<'a> {
     }
 
     fn generate_css(&self, class: Class) -> String {
-        let rules = Rules::new().rules;
+        let  rules = &self.mapped;
 
         if let Some(rule) = rules.get(class.style) {
             let style = match &rule.styles {
@@ -213,7 +217,7 @@ mod tests {
         let content =
             String::from("Fz(2rem) Fw(5px) D(g) \n Mstart(4px)--sm C(red):h::b--sm flex flex-1");
 
-        let retomizer = Retomizer::new(content);
+        let retomizer = Retomizer::new(content,None);
         let class_names = retomizer.get_classes();
 
         assert_eq!(
