@@ -2,19 +2,34 @@ mod library;
 
 use std::collections::HashMap;
 
-use library::{rules::{Rules, Style, Rule}};
-use regex::{Match, Regex, Captures};
+use library::rules::{Rule, Rules, Style};
+use regex::{Captures, Match, Regex};
 
 pub use crate::library::config::Config;
 pub struct Retomizer<'a> {
     content: String,
     mapped: HashMap<&'a str, Rule<'a>>,
+    config: Config,
 }
 
 impl<'a> Retomizer<'a> {
-    pub fn new(content: String,config: Option<Config>) -> Retomizer<'a> {
+    pub fn new(content: String, config: Option<Config>) -> Retomizer<'a> {
+        let default_config = Config {
+            breakpoints: HashMap::new(),
+            content: vec![],
+            custom: HashMap::new(),
+            class_names: vec![],
+            exclude: vec![],
+        };
+        let config = if let Some(config) = config {
+            config
+        } else {
+            default_config
+        };
+
         Retomizer {
             content,
+            config,
             mapped: Rules::mapped(),
         }
     }
@@ -33,7 +48,7 @@ impl<'a> Retomizer<'a> {
     }
 
     fn generate_css(&self, class: Class) -> String {
-        let  rules = &self.mapped;
+        let rules = &self.mapped;
 
         if let Some(rule) = rules.get(class.style) {
             let style = match &rule.styles {
@@ -53,7 +68,7 @@ impl<'a> Retomizer<'a> {
                 }
             };
 
-            let css_class = class.to_string(style);
+            let css_class = class.to_string(style, &self.config);
 
             return css_class;
         }
@@ -76,37 +91,33 @@ impl<'a> Retomizer<'a> {
     }
 }
 
-
 pub struct Psudo<'a> {
     selector: &'a str,
-    value: &'a str
+    value: &'a str,
 }
 
-impl<'a> Psudo<'a>{
-    pub fn new(psudo: Option<Match>)->Psudo {
+impl<'a> Psudo<'a> {
+    pub fn new(psudo: Option<Match>) -> Psudo {
         let psudo = Class::get_match(psudo);
-        let (selector,value) = match psudo.as_str() {
-            ":a"=> (":a",":active"),
-            ":c"=> (":c",":checked"),
-            ":f"=> (":f",":focus"),
-            ":h"=> (":h",":hover"),
-            "::a"=> ("::a","::after"),
-            "::b"=> ("::b","::before"),
-            "::bd"=> ("::bd","::backdrop"),
-            "::c"=> ("::c","::cue"),
-            "::fsb"=> ("::fsb","::file-selector-button"),
-            "::fl"=> ("::fl","::first-letter"),
-            "::fli"=> ("::fli","::first-line"),
-            "::m"=> ("::m","::marker"),
-            "::ph"=> ("::ph","::placeholder"),
-            "::s"=> ("::s","::selection"),
-            _=>("","")
+        let (selector, value) = match psudo.as_str() {
+            ":a" => (":a", ":active"),
+            ":c" => (":c", ":checked"),
+            ":f" => (":f", ":focus"),
+            ":h" => (":h", ":hover"),
+            "::a" => ("::a", "::after"),
+            "::b" => ("::b", "::before"),
+            "::bd" => ("::bd", "::backdrop"),
+            "::c" => ("::c", "::cue"),
+            "::fsb" => ("::fsb", "::file-selector-button"),
+            "::fl" => ("::fl", "::first-letter"),
+            "::fli" => ("::fli", "::first-line"),
+            "::m" => ("::m", "::marker"),
+            "::ph" => ("::ph", "::placeholder"),
+            "::s" => ("::s", "::selection"),
+            _ => ("", ""),
         };
 
-        Psudo{
-            selector,
-            value
-        }
+        Psudo { selector, value }
     }
 }
 pub struct Class<'a> {
@@ -121,11 +132,10 @@ pub struct Class<'a> {
 
 impl<'a> Class<'a> {
     pub fn new(name: &str) -> Option<Class> {
-        let regex = Regex::new( r"(?P<context>[a-zA-Z]+(?P<context_psudo_class>:(a|f|c|h))?(?P<combinator>(_|>|~|\+)))?(?P<style>[A-Z][a-z]*)(?:\()(?P<arguments>[a-z0-9,]+)(?:\))(?P<important>!)?(?P<psudo_class>:(a|f|c|h))?(?P<psudo_element>::(a|bd|b|c|fsb|fli|fl|m|ph|s))?(?P<breakpoint>--[a-z0-9]+)?").unwrap();
+        let regex = Regex::new( r"(?P<context>[a-zA-Z]+(?P<context_psudo_class>:(a|f|c|h))?(?P<combinator>(_|>|~|\+)))?(?P<style>[A-Z][a-z]*)(?:\()(?P<arguments>[a-z0-9,]+)(?:\))(?P<important>!)?(?P<psudo_class>:(a|f|c|h))?(?P<psudo_element>::(a|bd|b|c|fsb|fli|fl|m|ph|s))?(--(?P<breakpoint>[a-z0-9]+))?").unwrap();
 
         match regex.captures(name) {
             Some(captures) => {
-
                 let style = captures.name("style");
                 let arguments = captures.name("arguments");
 
@@ -168,9 +178,12 @@ impl<'a> Class<'a> {
         }
     }
 
-    pub fn to_string(&self, properties: Vec<String>) -> String {
+    pub fn to_string(&self, properties: Vec<String>, config: &Config) -> String {
         let psudo_class = Psudo::new(self.psudo_class);
         let psudo_element = Psudo::new(self.psudo_element);
+        let breakpoint = Class::get_match(self.breakpoint);
+        let mediaquery = config.breakpoints.get(&breakpoint);
+
         let selector = format!(
             r"{context}{style}({arguments}){important}{psudo_class}{psudo_element}{breakpoint}",
             context = "",
@@ -179,14 +192,18 @@ impl<'a> Class<'a> {
             important = if self.important { "!" } else { "" },
             psudo_class = psudo_class.selector,
             psudo_element = psudo_element.selector,
-            breakpoint = Class::get_match(self.breakpoint)
+            breakpoint = if breakpoint == "" {
+                String::from("")
+            } else {
+                format!("--{breakpoint}")
+            }
         );
 
         let regex = Regex::new(r"[!():]").unwrap();
         let selector = regex.replace_all(&selector, |capture: &Captures| {
             let escaped = match capture.get(0) {
-                Some(value)=>format!(r"\{}",value.as_str()),
-                None=>String::from("")
+                Some(value) => format!(r"\{}", value.as_str()),
+                None => String::from(""),
             };
 
             escaped
@@ -194,7 +211,7 @@ impl<'a> Class<'a> {
 
         let psudo = format!(
             "{class}{element}",
-            class = psudo_class.value, 
+            class = psudo_class.value,
             element = psudo_element.value
         );
 
@@ -203,7 +220,12 @@ impl<'a> Class<'a> {
             properties = Class::format_properties(&self, &properties)
         );
 
-        return format!(".{selector}{psudo}{style}");
+        let mut class = format!(".{selector}{psudo}{style}");
+        if let Some(media) = mediaquery {
+            class = format!("{media}{{{class}}}")
+        }
+
+        return class;
     }
 }
 
@@ -217,7 +239,7 @@ mod tests {
         let content =
             String::from("Fz(2rem) Fw(5px) D(g) \n Mstart(4px)--sm C(red):h::b--sm flex flex-1");
 
-        let retomizer = Retomizer::new(content,None);
+        let retomizer = Retomizer::new(content, None);
         let class_names = retomizer.get_classes();
 
         assert_eq!(
@@ -266,9 +288,57 @@ mod tests {
     }
 
     #[test]
-    fn test_hover() {
+    fn test_psudo_class() {
         {
             let class = Class::new("P(2rem):h");
+            let psudo = class.unwrap().psudo_class.unwrap();
+
+            assert_eq!(":h", psudo.as_str());
+        }
+
+        {
+            let class = Class::new("P(2rem)::b:h");
+            let psudo = class.unwrap().psudo_class;
+
+            if let Some(_) = psudo {
+                panic!("Should Not Get Any Psudo Class")
+            }
+        }
+
+        {
+            let class = Class::new("P(2rem):f::b--sm");
+            let psudo = class.unwrap().psudo_class;
+
+            if let None = psudo {
+                panic!("Should Get A Psudo Class")
+            }
+        }
+    }
+
+    #[test]
+    fn test_psudo_element() {
+        {
+            let class = Class::new("P(2rem):h::b");
+            let psudo = class.unwrap().psudo_element.unwrap();
+
+            assert_eq!("::b", psudo.as_str());
+        }
+        {
+            let class = Class::new("P(2rem):h--sm::b");
+            let psudo = class.unwrap().psudo_element;
+
+            if let Some(_) = psudo {
+                panic!("Should Not Get Any Psudo Class")
+            }
+        }
+
+        {
+            let class = Class::new("P(2rem):f::b--sm");
+            let psudo = class.unwrap().psudo_element;
+
+            if let None = psudo {
+                panic!("Should Get A Psudo Class")
+            }
         }
     }
 }

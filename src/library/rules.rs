@@ -1,6 +1,5 @@
 use std::{collections::HashMap, fmt::format};
 
-use crate::Class;
 
 // struct Object<'a>(HashMap<&'a str, &'a str>);
 // struct CallBack(Box<dyn Fn(&Vec<&str>) -> String>);
