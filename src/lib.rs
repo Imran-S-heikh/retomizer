@@ -13,19 +13,7 @@ pub struct Retomizer<'a> {
 }
 
 impl<'a> Retomizer<'a> {
-    pub fn new(content: String, config: Option<Config>) -> Retomizer<'a> {
-        let default_config = Config {
-            breakpoints: HashMap::new(),
-            content: vec![],
-            custom: HashMap::new(),
-            class_names: vec![],
-            exclude: vec![],
-        };
-        let config = if let Some(config) = config {
-            config
-        } else {
-            default_config
-        };
+    pub fn new(content: String, config: Config) -> Retomizer<'a> {
 
         Retomizer {
             content,
@@ -47,7 +35,7 @@ impl<'a> Retomizer<'a> {
         return result;
     }
 
-    fn generate_css(&self, class: Class) -> String {
+    fn generate_css(&self, class: Class) -> Option<String> {
         let rules = &self.mapped;
 
         if let Some(rule) = rules.get(class.style) {
@@ -70,24 +58,32 @@ impl<'a> Retomizer<'a> {
 
             let css_class = class.to_string(style, &self.config);
 
-            return css_class;
+            return Some(css_class);
         }
 
-        String::from("nothing found")
+        None
     }
 
     pub fn get_css(&self, classes: Vec<&str>) -> String {
-        let mut stylesheet = vec![];
+        let mut stylesheet: HashMap<String, String> = HashMap::new();
 
         for name in classes {
             if let Some(class) = Class::new(name) {
+                let key = class.get_selector();
                 let css = Retomizer::generate_css(&self, class);
 
-                stylesheet.push(css)
+                match css {
+                    Some(css) => {
+                        stylesheet.insert(key, css);
+                    }
+                    None => (),
+                }
             }
         }
 
+        let stylesheet: Vec<String> = stylesheet.into_values().collect();
         stylesheet.join("\n")
+        // String::from("")
     }
 }
 
@@ -178,13 +174,12 @@ impl<'a> Class<'a> {
         }
     }
 
-    pub fn to_string(&self, properties: Vec<String>, config: &Config) -> String {
+    pub fn get_selector(&self) -> String {
         let psudo_class = Psudo::new(self.psudo_class);
         let psudo_element = Psudo::new(self.psudo_element);
         let breakpoint = Class::get_match(self.breakpoint);
-        let mediaquery = config.breakpoints.get(&breakpoint);
 
-        let selector = format!(
+        format!(
             r"{context}{style}({arguments}){important}{psudo_class}{psudo_element}{breakpoint}",
             context = "",
             style = self.style,
@@ -197,7 +192,15 @@ impl<'a> Class<'a> {
             } else {
                 format!("--{breakpoint}")
             }
-        );
+        )
+    }
+
+    pub fn to_string(&self, properties: Vec<String>, config: &Config) -> String {
+        let psudo_class = Psudo::new(self.psudo_class);
+        let psudo_element = Psudo::new(self.psudo_element);
+        let breakpoint = Class::get_match(self.breakpoint);
+        let mediaquery = config.breakpoints.get(&breakpoint);
+        let selector = self.get_selector();
 
         let regex = Regex::new(r"[!():]").unwrap();
         let selector = regex.replace_all(&selector, |capture: &Captures| {
@@ -239,9 +242,8 @@ mod tests {
         let content =
             String::from("Fz(2rem) Fw(5px) D(g) \n Mstart(4px)--sm C(red):h::b--sm flex flex-1");
 
-        let retomizer = Retomizer::new(content, None);
+        let retomizer = Retomizer::new(content, Config::default());
         let class_names = retomizer.get_classes();
-
         assert_eq!(
             vec![
                 "Fz(2rem)",
@@ -256,6 +258,7 @@ mod tests {
 
     #[test]
     fn test_class() {
+        
         let class = Class::new("P(3rem,3rem,10px,34inch)");
         let class = match class {
             Some(class) => class,

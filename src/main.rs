@@ -1,7 +1,67 @@
-fn main() {
-    // Read the file and get #String
-    // Separate Classes from the #String
-    // Analyze the Class and separate the arguments
-    // Create a hashmap containing all the classes for css generation 
-    // Create a hashmap/relevent for cacheing/output the result 
+use std::{env, sync::mpsc::channel};
+
+use argmap::argmap;
+use glob::glob;
+use notify::{RecommendedWatcher, RecursiveMode, Watcher};
+use retomizer::Config;
+
+fn main() -> Result<(), ()> {
+    let (tx, rx) = channel();
+
+    let mut watcher = RecommendedWatcher::new(tx, notify::Config::default()).unwrap();
+    let args: Vec<String> = env::args().collect();
+    let mapped = argmap(args);
+    let build = !mapped.contains_key("watch");
+
+    let pwd = env::current_dir().unwrap();
+    let path = mapped.get("config").unwrap().get(0).unwrap();
+    let config_path = pwd.join(path).canonicalize().unwrap();
+    let config = Config::load(&config_path);
+
+    for path in config.content {
+        let mut base_path = config_path.clone();
+        base_path.pop();
+
+        let abs_path = format!("{}", base_path.join(&path).display());
+        let paths = glob(&abs_path).unwrap();
+
+        for path in paths {
+            match path {
+                Ok(path) => {
+                    let path = path.canonicalize().unwrap();
+                    watcher
+                        .watch(path.as_path(), RecursiveMode::NonRecursive)
+                        .unwrap();
+                    println!(
+                        "🚀 {}: {}",
+                        if build { "Checking" } else { "Watching" },
+                        path.display()
+                    )
+                }
+                Err(e) => println!("{:?}", e),
+            }
+        }
+    }
+
+    if !build {
+        for res in rx {
+            match res {
+                Ok(event) => {
+                    if event.kind.is_access() {
+                        let s = event.source();
+
+                        match s {
+                            Some(val) => println!("{val}"),
+                            None => (),
+                        }
+
+                        println!("{:?}", event)
+                    }
+                }
+                Err(e) => println!("watcher error: {:?}", e),
+            }
+        }
+    }
+
+    Ok(())
 }

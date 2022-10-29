@@ -1,0 +1,7 @@
+{
+    "scripts": {
+        "start": "cargo run -- --config ./tests/files/retomizer.config.json --watch",
+        "build": "cargo run -- --config ./tests/files/retomizer.config.json",
+        "test-argmap": "cargo test -p argmap"
+    }
+}
