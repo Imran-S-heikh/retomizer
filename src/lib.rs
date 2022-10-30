@@ -7,28 +7,29 @@ use regex::{Captures, Match, Regex};
 
 pub use crate::library::config::Config;
 pub struct Retomizer<'a> {
-    content: String,
-    mapped: HashMap<&'a str, Rule<'a>>,
-    config: Config,
+    // content: String,
+    rules: HashMap<&'a str, Rule<'a>>,
+    config: &'a Config,
+    stylesheet: HashMap<String,String>
 }
 
 impl<'a> Retomizer<'a> {
-    pub fn new(content: String, config: Config) -> Retomizer<'a> {
+    pub fn new(config: &'a Config) -> Retomizer<'a> {
 
         Retomizer {
-            content,
             config,
-            mapped: Rules::mapped(),
+            rules: Rules::mapped(),
+            stylesheet: HashMap::new()
         }
     }
 
-    pub fn get_classes(&self) -> Vec<&str> {
+    pub fn get_classes(content: String) -> Vec<String> {
         let re = Regex::new(r"[A-Z][a-z]*\([a-zA-Z0-9,%]+\)(?:!)?(?::(a|c|f|h))?(?:::(a|bd|b|c|fsb|fli|fl|m|ph|s))?(?:--[a-z]+)?").unwrap();
-        let mut result: Vec<&str> = vec![];
+        let mut result: Vec<String> = vec![];
 
-        for cap in re.captures_iter(&self.content) {
+        for cap in re.captures_iter(&content) {
             if let Some(match_class) = cap.get(0) {
-                result.push(match_class.as_str());
+                result.push(match_class.as_str().to_string());
             }
         }
 
@@ -36,7 +37,7 @@ impl<'a> Retomizer<'a> {
     }
 
     fn generate_css(&self, class: Class) -> Option<String> {
-        let rules = &self.mapped;
+        let rules = &self.rules;
 
         if let Some(rule) = rules.get(class.style) {
             let style = match &rule.styles {
@@ -64,26 +65,29 @@ impl<'a> Retomizer<'a> {
         None
     }
 
-    pub fn get_css(&self, classes: Vec<&str>) -> String {
-        let mut stylesheet: HashMap<String, String> = HashMap::new();
+    pub fn get_css(&self)-> String{
+        let stylesheet = &self.stylesheet;
+        let man: Vec<String> = stylesheet.clone().into_values().collect();
+        // let collected: Vec<String> = stylesheet.cloned();
+        man.join("\n")
+    }
+
+    pub fn push_content(&mut self, content: String) {
+        let classes = Retomizer::get_classes(content);
 
         for name in classes {
-            if let Some(class) = Class::new(name) {
+            if let Some(class) = Class::new(&name) {
                 let key = class.get_selector();
                 let css = Retomizer::generate_css(&self, class);
 
                 match css {
                     Some(css) => {
-                        stylesheet.insert(key, css);
+                        self.stylesheet.insert(key, css);
                     }
                     None => (),
                 }
             }
         }
-
-        let stylesheet: Vec<String> = stylesheet.into_values().collect();
-        stylesheet.join("\n")
-        // String::from("")
     }
 }
 
@@ -242,8 +246,8 @@ mod tests {
         let content =
             String::from("Fz(2rem) Fw(5px) D(g) \n Mstart(4px)--sm C(red):h::b--sm flex flex-1");
 
-        let retomizer = Retomizer::new(content, Config::default());
-        let class_names = retomizer.get_classes();
+        // let retomizer = Retomizer::new(Config::default());
+        let class_names = Retomizer::get_classes(content);
         assert_eq!(
             vec![
                 "Fz(2rem)",

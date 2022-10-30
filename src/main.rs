@@ -1,9 +1,9 @@
-use std::{env, sync::mpsc::channel};
+use std::{env, sync::mpsc::channel, fs};
 
 use argmap::argmap;
 use glob::glob;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
-use retomizer::Config;
+use retomizer::{Config, Retomizer};
 
 fn main() -> Result<(), ()> {
     let (tx, rx) = channel();
@@ -12,13 +12,14 @@ fn main() -> Result<(), ()> {
     let args: Vec<String> = env::args().collect();
     let mapped = argmap(args);
     let build = !mapped.contains_key("watch");
-
+    
     let pwd = env::current_dir().unwrap();
     let path = mapped.get("config").unwrap().get(0).unwrap();
     let config_path = pwd.join(path).canonicalize().unwrap();
     let config = Config::load(&config_path);
+    let mut retomizer = Retomizer::new(&config);
 
-    for path in config.content {
+    for path in &config.content {
         let mut base_path = config_path.clone();
         base_path.pop();
 
@@ -29,9 +30,14 @@ fn main() -> Result<(), ()> {
             match path {
                 Ok(path) => {
                     let path = path.canonicalize().unwrap();
-                    watcher
-                        .watch(path.as_path(), RecursiveMode::NonRecursive)
-                        .unwrap();
+
+                    let content = fs::read_to_string(&path).unwrap();
+
+                    retomizer.push_content(content);
+
+                    // watcher
+                    //     .watch(path.as_path(), RecursiveMode::NonRecursive)
+                    //     .unwrap();
                     println!(
                         "🚀 {}: {}",
                         if build { "Checking" } else { "Watching" },
@@ -61,6 +67,9 @@ fn main() -> Result<(), ()> {
                 Err(e) => println!("watcher error: {:?}", e),
             }
         }
+    }else {
+        let css = retomizer.get_css();
+        println!("{css}");
     }
 
     Ok(())

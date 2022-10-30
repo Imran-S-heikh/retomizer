@@ -13,10 +13,10 @@ mod tests {
 
        
 
-        let retomizer = Retomizer::new(content,config);
+        let mut retomizer = Retomizer::new(&config);
 
-        let classes = retomizer.get_classes();
-        let css = retomizer.get_css(classes);
+        retomizer.push_content(content);
+        let css = retomizer.get_css();
 
         println!("{css}");
         assert!(false);
