@@ -1,16 +1,21 @@
 mod library;
-
 use std::collections::HashMap;
 
 use library::rules::{Rule, Rules, Style};
 use regex::{Captures, Match, Regex};
 
 pub use crate::library::config::Config;
+
+pub struct MediaQuery<'a> {
+    query: &'a str,
+    class: Class<'a>,
+    breakpoint: i32,
+}
 pub struct Retomizer<'a> {
-    // content: String,
     rules: HashMap<&'a str, Rule<'a>>,
     config: &'a Config,
-    stylesheet: HashMap<String,String>
+    stylesheet: HashMap<String,String>,
+    mediaquery: HashMap<String,MediaQuery<'a>>
 }
 
 impl<'a> Retomizer<'a> {
@@ -19,24 +24,29 @@ impl<'a> Retomizer<'a> {
         Retomizer {
             config,
             rules: Rules::mapped(),
-            stylesheet: HashMap::new()
+            stylesheet: HashMap::new(),
+            mediaquery: HashMap::new()
         }
     }
 
-    pub fn get_classes(content: String) -> Vec<String> {
+    pub fn get_classes(&self,content: String) -> Vec<String> {
         let re = Regex::new(r"[A-Z][a-z]*\([a-zA-Z0-9,%]+\)(?:!)?(?::(a|c|f|h))?(?:::(a|bd|b|c|fsb|fli|fl|m|ph|s))?(?:--[a-z]+)?").unwrap();
         let mut result: Vec<String> = vec![];
 
         for cap in re.captures_iter(&content) {
             if let Some(match_class) = cap.get(0) {
-                result.push(match_class.as_str().to_string());
+                let class = match_class.as_str().to_string();
+
+                if !self.stylesheet.contains_key(&class) {
+                    result.push(class);
+                }
             }
         }
 
         return result;
     }
 
-    fn generate_css(&self, class: Class) -> Option<String> {
+    fn generate_css(&self, class: &Class) -> Option<String> {
         let rules = &self.rules;
 
         if let Some(rule) = rules.get(class.style) {
@@ -47,7 +57,19 @@ impl<'a> Retomizer<'a> {
 
                     for (style, value) in map {
                         let mut value = value.to_string();
+
+                        // Set The Arg with placeholder
                         for (i, arg) in class.arguments.iter().enumerate() {
+                            let arg = if rule.param_tovalue {
+                                *arg
+                            }else {
+                                let msg = format!("Bad Rules, No Arguments Defined for {}",rule.name);
+                                let valid_args = rule.arguments.as_ref().expect(&msg);
+                                let msg = format!("🚫 {arg} is not a valid argument for {}",rule.name);
+                                let arg = *valid_args.get(arg).expect(&msg);
+
+                                arg
+                            };
                             value = value.replace(format!("${{{i}}}").as_str(), arg);
                         }
                         styles.push(format!("{style}:{value}"));
@@ -67,27 +89,42 @@ impl<'a> Retomizer<'a> {
 
     pub fn get_css(&self)-> String{
         let stylesheet = &self.stylesheet;
-        let man: Vec<String> = stylesheet.clone().into_values().collect();
-        // let collected: Vec<String> = stylesheet.cloned();
-        man.join("\n")
+        let mut stylesheet: Vec<String> = stylesheet.clone().into_values().collect();
+        stylesheet.sort();
+        stylesheet.join("\n")
     }
 
     pub fn push_content(&mut self, content: String) {
-        let classes = Retomizer::get_classes(content);
+        let classes = self.get_classes(content);
 
         for name in classes {
-            if let Some(class) = Class::new(&name) {
+            if let Some(class) = Class::new(name) {
                 let key = class.get_selector();
-                let css = Retomizer::generate_css(&self, class);
+                let css = self.generate_css(&class);
+                let breakpoint = Class::get_match(class.breakpoint);
+                let mediaquery = self.config.breakpoints.get(&breakpoint);
+                // println!("{:?}",class.name);
 
-                match css {
-                    Some(css) => {
-                        self.stylesheet.insert(key, css);
+                if let Some(_) = class.breakpoint {
+                    if let Some(mediaquery) = mediaquery {
+                        let mediaquery = Retomizer::get_mediaquery(mediaquery, class);
+                        self.mediaquery.insert(key, mediaquery);
                     }
-                    None => (),
+                }else {
+                    match css {
+                        Some(css) => {
+                            self.stylesheet.insert(key, css);
+                        }
+                        None => (),
+                    }
                 }
             }
         }
+    }
+
+    fn get_mediaquery(query: &'a str,class: Class<'a>)-> MediaQuery<'a>{
+        let breakpoint = 453;
+        MediaQuery { query, class , breakpoint }
     }
 }
 
@@ -131,7 +168,7 @@ pub struct Class<'a> {
 }
 
 impl<'a> Class<'a> {
-    pub fn new(name: &str) -> Option<Class> {
+    pub fn new(name: & str) -> Option<Class> {
         let regex = Regex::new( r"(?P<context>[a-zA-Z]+(?P<context_psudo_class>:(a|f|c|h))?(?P<combinator>(_|>|~|\+)))?(?P<style>[A-Z][a-z]*)(?:\()(?P<arguments>[a-z0-9,]+)(?:\))(?P<important>!)?(?P<psudo_class>:(a|f|c|h))?(?P<psudo_element>::(a|bd|b|c|fsb|fli|fl|m|ph|s))?(--(?P<breakpoint>[a-z0-9]+))?").unwrap();
 
         match regex.captures(name) {
@@ -202,8 +239,8 @@ impl<'a> Class<'a> {
     pub fn to_string(&self, properties: Vec<String>, config: &Config) -> String {
         let psudo_class = Psudo::new(self.psudo_class);
         let psudo_element = Psudo::new(self.psudo_element);
-        let breakpoint = Class::get_match(self.breakpoint);
-        let mediaquery = config.breakpoints.get(&breakpoint);
+        // let breakpoint = Class::get_match(self.breakpoint);
+        // let mediaquery = config.breakpoints.get(&breakpoint);
         let selector = self.get_selector();
 
         let regex = Regex::new(r"[!():]").unwrap();
@@ -227,16 +264,17 @@ impl<'a> Class<'a> {
             properties = Class::format_properties(&self, &properties)
         );
 
-        let mut class = format!(".{selector}{psudo}{style}");
-        if let Some(media) = mediaquery {
-            class = format!("{media}{{{class}}}")
-        }
+        let class = format!(".{selector}{psudo}{style}");
+        // if let Some(media) = mediaquery {
+        //     class = format!("{media}{{{class}}}")
+        // }
 
         return class;
     }
 }
 
 #[cfg(test)]
+ #[deny(soft_unstable)]
 mod tests {
 
     use super::*;
@@ -245,9 +283,9 @@ mod tests {
     fn test_get_classes() {
         let content =
             String::from("Fz(2rem) Fw(5px) D(g) \n Mstart(4px)--sm C(red):h::b--sm flex flex-1");
-
-        // let retomizer = Retomizer::new(Config::default());
-        let class_names = Retomizer::get_classes(content);
+        let config = Config::default();
+        let retomizer = Retomizer::new(&config);
+        let class_names = Retomizer::get_classes(&retomizer,content);
         assert_eq!(
             vec![
                 "Fz(2rem)",
@@ -348,4 +386,6 @@ mod tests {
             }
         }
     }
+   
+
 }
