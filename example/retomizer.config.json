@@ -1,6 +1,7 @@
 {
+  "output": "./src/style.css",
   "content": [
-    "./**/*.html"
+    "./src/pages/**/*.html"
   ],
   "breakpoints": {
     "sm": "@media(min-width:750px)",

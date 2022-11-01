@@ -11,6 +11,7 @@ pub struct Config {
     pub custom: HashMap<String, String>,
     pub class_names: Vec<String>,
     pub exclude: Vec<String>,
+    pub output: String
 }
 
 impl Config {

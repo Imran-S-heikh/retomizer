@@ -1,5 +1,5 @@
 mod library;
-use std::collections::HashMap;
+use std::{collections::HashMap, path::Path};
 
 use library::rules::{Rule, Rules, Style};
 use regex::{Captures, Match, Regex};
@@ -8,28 +8,50 @@ pub use crate::library::config::Config;
 
 pub struct MediaQuery<'a> {
     query: &'a str,
-    class: Class<'a>,
-    breakpoint: i32,
+    css: String,
+    pixel: i32,
+    breakpoint: String,
 }
+
+impl<'a> MediaQuery<'a> {
+    pub fn new(query: &'a str, css: String, breakpoint: String) -> Self {
+        let regex = Regex::new("[0-9]+").unwrap();
+        let message = "MediaQuery Should Have a Breakpoint";
+        let pixel = regex
+            .captures(query)
+            .expect(message)
+            .get(0)
+            .expect(message)
+            .as_str();
+        let pixel: i32 = pixel.parse().unwrap();
+
+        return Self {
+            query,
+            css,
+            pixel,
+            breakpoint,
+        };
+    }
+}
+
 pub struct Retomizer<'a> {
     rules: HashMap<&'a str, Rule<'a>>,
     config: &'a Config,
-    stylesheet: HashMap<String,String>,
-    mediaquery: HashMap<String,MediaQuery<'a>>
+    stylesheet: HashMap<String, String>,
+    mediaquery: HashMap<String, MediaQuery<'a>>,
 }
 
 impl<'a> Retomizer<'a> {
     pub fn new(config: &'a Config) -> Retomizer<'a> {
-
         Retomizer {
             config,
             rules: Rules::mapped(),
             stylesheet: HashMap::new(),
-            mediaquery: HashMap::new()
+            mediaquery: HashMap::new(),
         }
     }
 
-    pub fn get_classes(&self,content: String) -> Vec<String> {
+    pub fn get_classes(&self, content: String) -> Vec<String> {
         let re = Regex::new(r"[A-Z][a-z]*\([a-zA-Z0-9,%]+\)(?:!)?(?::(a|c|f|h))?(?:::(a|bd|b|c|fsb|fli|fl|m|ph|s))?(?:--[a-z]+)?").unwrap();
         let mut result: Vec<String> = vec![];
 
@@ -62,10 +84,12 @@ impl<'a> Retomizer<'a> {
                         for (i, arg) in class.arguments.iter().enumerate() {
                             let arg = if rule.param_tovalue {
                                 *arg
-                            }else {
-                                let msg = format!("Bad Rules, No Arguments Defined for {}",rule.name);
+                            } else {
+                                let msg =
+                                    format!("Bad Rules, No Arguments Defined for {}", rule.name);
                                 let valid_args = rule.arguments.as_ref().expect(&msg);
-                                let msg = format!("🚫 {arg} is not a valid argument for {}",rule.name);
+                                let msg =
+                                    format!("🚫 {arg} is not a valid argument for {}", rule.name);
                                 let arg = *valid_args.get(arg).expect(&msg);
 
                                 arg
@@ -87,45 +111,81 @@ impl<'a> Retomizer<'a> {
         None
     }
 
-    pub fn get_css(&self)-> String{
+    pub fn get_css(&self) -> String {
         let stylesheet = &self.stylesheet;
         let mut stylesheet: Vec<String> = stylesheet.clone().into_values().collect();
         stylesheet.sort();
-        stylesheet.join("\n")
+        let styles = stylesheet.join("\n");
+
+        let mut cache: HashMap<&String, Vec<&String>> = HashMap::new();
+        let mut breakpoint_map:  HashMap<&String,i32> = HashMap::new();
+
+        for (_, mediaquery) in self.mediaquery.iter() {
+            let key = &mediaquery.breakpoint;
+            let css = &mediaquery.css;
+
+            if cache.contains_key(key) {
+                let arr = cache.get_mut(key).unwrap();
+                arr.push(css);
+            } else {
+                cache.insert(key, vec![css]);
+            }
+
+            breakpoint_map.insert(key, mediaquery.pixel);
+        }
+
+        let mut points: Vec<&String> = breakpoint_map.clone().into_keys().collect();
+
+        points.sort_by(|a,b|{
+            let val_a = breakpoint_map.get(a).unwrap();
+            let val_b = breakpoint_map.get(b).unwrap();
+
+            val_a.partial_cmp(val_b).unwrap()
+        });
+
+        let mut styles_media: Vec<String> = Vec::new();
+
+        for key in points {
+            let styles = cache.get_mut(key).unwrap();
+            let query = self.config.breakpoints.get(key).unwrap();
+            styles.sort();
+            let styles: Vec<String> = styles.iter().map(|e|e.to_string()).collect();
+
+            let styles = styles.join("\n");
+
+            styles_media.push(format!("{query}{{\n{styles}\n}}"));
+        }
+
+        let styles_media = styles_media.join("\n");
+
+        format!("{styles}\n{styles_media}")
     }
 
     pub fn push_content(&mut self, content: String) {
         let classes = self.get_classes(content);
 
         for name in classes {
-            if let Some(class) = Class::new(name) {
+            if let Some(class) = Class::new(&name) {
                 let key = class.get_selector();
                 let css = self.generate_css(&class);
                 let breakpoint = Class::get_match(class.breakpoint);
                 let mediaquery = self.config.breakpoints.get(&breakpoint);
-                // println!("{:?}",class.name);
 
-                if let Some(_) = class.breakpoint {
-                    if let Some(mediaquery) = mediaquery {
-                        let mediaquery = Retomizer::get_mediaquery(mediaquery, class);
+                match (mediaquery, class.breakpoint, css) {
+                    (Some(mediaquery), Some(breakpoint), Some(css)) => {
+                        let mediaquery =
+                            MediaQuery::new(mediaquery, css, breakpoint.as_str().to_owned());
                         self.mediaquery.insert(key, mediaquery);
                     }
-                }else {
-                    match css {
-                        Some(css) => {
-                            self.stylesheet.insert(key, css);
-                        }
-                        None => (),
+                    (None, None, Some(css)) => {
+                        self.stylesheet.insert(key, css);
                     }
+                    _ => (),
                 }
             }
         }
     }
 
-    fn get_mediaquery(query: &'a str,class: Class<'a>)-> MediaQuery<'a>{
-        let breakpoint = 453;
-        MediaQuery { query, class , breakpoint }
-    }
 }
 
 pub struct Psudo<'a> {
@@ -168,7 +228,7 @@ pub struct Class<'a> {
 }
 
 impl<'a> Class<'a> {
-    pub fn new(name: & str) -> Option<Class> {
+    pub fn new(name: &str) -> Option<Class> {
         let regex = Regex::new( r"(?P<context>[a-zA-Z]+(?P<context_psudo_class>:(a|f|c|h))?(?P<combinator>(_|>|~|\+)))?(?P<style>[A-Z][a-z]*)(?:\()(?P<arguments>[a-z0-9,]+)(?:\))(?P<important>!)?(?P<psudo_class>:(a|f|c|h))?(?P<psudo_element>::(a|bd|b|c|fsb|fli|fl|m|ph|s))?(--(?P<breakpoint>[a-z0-9]+))?").unwrap();
 
         match regex.captures(name) {
@@ -274,7 +334,7 @@ impl<'a> Class<'a> {
 }
 
 #[cfg(test)]
- #[deny(soft_unstable)]
+#[deny(soft_unstable)]
 mod tests {
 
     use super::*;
@@ -285,7 +345,7 @@ mod tests {
             String::from("Fz(2rem) Fw(5px) D(g) \n Mstart(4px)--sm C(red):h::b--sm flex flex-1");
         let config = Config::default();
         let retomizer = Retomizer::new(&config);
-        let class_names = Retomizer::get_classes(&retomizer,content);
+        let class_names = Retomizer::get_classes(&retomizer, content);
         assert_eq!(
             vec![
                 "Fz(2rem)",
@@ -300,7 +360,6 @@ mod tests {
 
     #[test]
     fn test_class() {
-        
         let class = Class::new("P(3rem,3rem,10px,34inch)");
         let class = match class {
             Some(class) => class,
@@ -386,6 +445,4 @@ mod tests {
             }
         }
     }
-   
-
 }
