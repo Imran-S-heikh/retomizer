@@ -2,6 +2,14 @@
     "scripts": {
         "start": "cargo run -- --config ./example/retomizer.config.json --watch",
         "build": "cargo run -- --config ./example/retomizer.config.json",
-        "test-argmap": "cargo test -p argmap"
+        "test-argmap": "cargo test -p argmap",
+        "generate-rules": "npx ts-node script.ts"
+    },
+    "devDependencies": {
+        "@types/node": "^18.11.9"
+    },
+    "dependencies": {
+        "atomizer": "^3.21.2",
+        "typescript": "^4.8.4"
     }
 }
